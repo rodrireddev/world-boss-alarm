@@ -4,7 +4,3 @@ export interface WorldBoss {
   timestamp: number
   location?: string
 }
-
-export interface HelltidesSchedule {
-  world_boss: unknown[]
-}

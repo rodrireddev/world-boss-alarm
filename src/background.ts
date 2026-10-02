@@ -1,452 +1,139 @@
-interface WorldBoss {
-  id: string
-  name: string
-  timestamp: number
-  location?: string
-}
+import type { WorldBoss } from "./types"
 
 interface DemonlyWorldBoss {
   boss: string | null
   spawnAt: string
   zones: string[]
-  confidence: string
 }
 
 interface DemonlyResponse {
-  ok: boolean
-  source: string
-  fetchedAt: string
-  generatedAt: string
-  data: {
-    worldBoss: DemonlyWorldBoss[]
-    helltides: unknown[]
-    legions: unknown[]
-    realmwalkers: unknown[]
+  data?: {
+    worldBoss?: DemonlyWorldBoss[]
   }
 }
 
-const WORLD_BOSS_API =
-  "https://demonly.net/api/worldstone/v1/events"
-
+const WORLD_BOSS_API = "https://demonly.net/api/worldstone/v1/events"
 const UPDATE_ALARM = "worldboss-page-update"
 const BOSS_ALARM_PREFIX = "worldboss-alarm-"
+const STORAGE_KEY = "nextBoss"
 
-let nextBoss: WorldBoss | null = null
-
-// ==========================================
-// INSTALACIÓN
-// ==========================================
-
-chrome.runtime.onInstalled.addListener(() => {
-  console.log("==========================================")
-  console.log("World Boss Alarm instalado")
-  console.log("==========================================")
-
-  chrome.alarms.create(UPDATE_ALARM, {
-    periodInMinutes: 5,
-  })
-
-  updateWorldBoss()
-})
-
-// ==========================================
-// INICIO DEL NAVEGADOR
-// ==========================================
-
-chrome.runtime.onStartup.addListener(() => {
-  updateWorldBoss()
-})
-
-// ==========================================
-// ALARMAS
-// ==========================================
-
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  // Actualización periódica
-  if (alarm.name === UPDATE_ALARM) {
-    await updateWorldBoss()
-    return
-  }
-
-  // Alarma del World Boss
-  if (alarm.name.startsWith(BOSS_ALARM_PREFIX)) {
-    console.log("==========================================")
-    console.log("🔔 ALARMA DEL WORLD BOSS")
-    console.log("==========================================")
-
-    chrome.tabs.query({}, (tabs) => {
-      for (const tab of tabs) {
-        if (tab.id === undefined) {
-          continue
-        }
-
-        chrome.tabs
-          .sendMessage(tab.id, {
-            type: "WORLD_BOSS_ALARM",
-            boss: nextBoss,
-          })
-          .catch(() => {})
-      }
-    })
-  }
-})
-
-// ==========================================
-// MENSAJES
-// ==========================================
-
-chrome.runtime.onMessage.addListener(
-  (message, _sender, sendResponse) => {
-    // --------------------------------------
-    // Obtener próximo World Boss
-    // --------------------------------------
-
-    if (message.type === "GET_WORLD_BOSS") {
-      sendResponse({
-        boss: nextBoss,
-      })
-
-      return true
-    }
-
-    // --------------------------------------
-    // Configurar alarma
-    // --------------------------------------
-
-    if (message.type === "SET_ALARM") {
-      const minutesBefore = Number(
-        message.minutesBefore
-      )
-
-      if (!nextBoss) {
-        sendResponse({
-          success: false,
-          error: "No hay World Boss",
-        })
-
-        return true
-      }
-
-      if (
-        !Number.isFinite(minutesBefore) ||
-        minutesBefore < 0
-      ) {
-        sendResponse({
-          success: false,
-          error: "Tiempo de alarma inválido",
-        })
-
-        return true
-      }
-
-      const success = setBossAlarm(minutesBefore)
-
-      sendResponse({
-        success,
-      })
-
-      return true
-    }
-  }
-)
-
-// ==========================================
-// ACTUALIZAR WORLD BOSS
-// ==========================================
-
-async function updateWorldBoss() {
-  try {
-    console.log("==========================================")
-    console.log("Consultando API de Demonly...")
-    console.log("URL:", WORLD_BOSS_API)
-
-    const response = await fetch(WORLD_BOSS_API)
-
-    console.log("HTTP:", response.status)
-    console.log("OK:", response.ok)
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
-    }
-
-    const data =
-      (await response.json()) as DemonlyResponse
-
-    console.log("Respuesta Demonly:", data)
-
-    if (
-      !data.data ||
-      !Array.isArray(data.data.worldBoss)
-    ) {
-      throw new Error(
-        "La respuesta no contiene data.worldBoss"
-      )
-    }
-
-    console.log(
-      "World Bosses encontrados:",
-      data.data.worldBoss.length
-    )
-
-    const events = parseWorldBosses(
-      data.data.worldBoss
-    )
-
-    console.log("Eventos válidos:", events)
-
-    const now = Date.now()
-
-    const futureEvents = events
-      .filter((event) => event.timestamp > now)
-      .sort(
-        (a, b) =>
-          a.timestamp - b.timestamp
-      )
-
-    if (futureEvents.length === 0) {
-      console.warn(
-        "No hay World Bosses futuros."
-      )
-
-      nextBoss = null
-
-      notifyTabs()
-
-      return
-    }
-
-    nextBoss = futureEvents[0]
-
-    console.log("==========================================")
-    console.log("PRÓXIMO WORLD BOSS")
-    console.log(nextBoss)
-    console.log("==========================================")
-
-    logBossTime(nextBoss)
-
-    notifyTabs()
-  } catch (error) {
-    console.error(
-      "Error consultando Demonly API:",
-      error
-    )
-  }
+// El service worker de MV3 se suspende: el estado vive en storage.
+async function getBoss(): Promise<WorldBoss | null> {
+  const stored = await chrome.storage.local.get(STORAGE_KEY)
+  return (stored[STORAGE_KEY] as WorldBoss | undefined) ?? null
 }
 
-// ==========================================
-// PARSEAR WORLD BOSSES
-// ==========================================
+function broadcast(type: string, boss: WorldBoss | null) {
+  chrome.tabs.query({}, (tabs) => {
+    for (const tab of tabs) {
+      if (tab.id !== undefined) {
+        chrome.tabs.sendMessage(tab.id, { type, boss }).catch(() => {})
+      }
+    }
+  })
+}
 
-function parseWorldBosses(
-  bosses: DemonlyWorldBoss[]
-): WorldBoss[] {
+function parseWorldBosses(bosses: DemonlyWorldBoss[]): WorldBoss[] {
   const results: WorldBoss[] = []
 
   for (const boss of bosses) {
-    if (!boss.spawnAt) {
-      console.warn(
-        "World Boss sin spawnAt:",
-        boss
-      )
+    const timestamp = Date.parse(boss.spawnAt)
+    if (Number.isNaN(timestamp)) continue
 
-      continue
-    }
-
-    const timestamp = Date.parse(
-      boss.spawnAt
-    )
-
-    if (Number.isNaN(timestamp)) {
-      console.warn(
-        "spawnAt inválido:",
-        boss.spawnAt
-      )
-
-      continue
-    }
-
-    const location = Array.isArray(
-      boss.zones
-    )
-      ? boss.zones
-          .filter(Boolean)
-          .join(", ")
-      : ""
-
-    const event: WorldBoss = {
+    results.push({
       id: `${boss.boss ?? "unknown"}-${timestamp}`,
-
-      // Si Demonly todavía no conoce el boss,
-      // mostramos "World Boss"
       name: boss.boss ?? "World Boss",
-
-      // spawnAt ya viene en ISO UTC.
-      // Date.parse() lo convierte correctamente
-      // al timestamp absoluto.
       timestamp,
-
-      location,
-    }
-
-    console.log(
-      "World Boss convertido:",
-      {
-        original: boss.spawnAt,
-
-        timestamp,
-
-        local: new Date(
-          timestamp
-        ).toString(),
-
-        iso: new Date(
-          timestamp
-        ).toISOString(),
-
-        name: event.name,
-
-        location: event.location,
-      }
-    )
-
-    results.push(event)
+      location: Array.isArray(boss.zones) ? boss.zones.filter(Boolean).join(", ") : "",
+    })
   }
 
   return results
 }
 
-// ==========================================
-// MOSTRAR INFORMACIÓN DEL BOSS
-// ==========================================
+async function updateWorldBoss() {
+  try {
+    const response = await fetch(WORLD_BOSS_API)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
-function logBossTime(
-  boss: WorldBoss
-) {
-  const date = new Date(
-    boss.timestamp
-  )
+    const { data } = (await response.json()) as DemonlyResponse
+    if (!Array.isArray(data?.worldBoss)) {
+      throw new Error("La respuesta no contiene data.worldBoss")
+    }
 
-  const remaining =
-    boss.timestamp - Date.now()
+    const now = Date.now()
+    const next =
+      parseWorldBosses(data.worldBoss)
+        .filter((event) => event.timestamp > now)
+        .sort((a, b) => a.timestamp - b.timestamp)[0] ?? null
 
-  console.log("------------------------------------------")
-  console.log("Boss:", boss.name)
-  console.log(
-    "Timestamp:",
-    boss.timestamp
-  )
-  console.log(
-    "Fecha local:",
-    date.toString()
-  )
-  console.log(
-    "ISO:",
-    date.toISOString()
-  )
-  console.log(
-    "Ubicación:",
-    boss.location
-  )
-  console.log(
-    "Tiempo restante:",
-    remaining,
-    "ms"
-  )
-  console.log(
-    "Tiempo restante:",
-    (
-      remaining /
-      1000 /
-      60
-    ).toFixed(2),
-    "minutos"
-  )
-  console.log("------------------------------------------")
+    await chrome.storage.local.set({ [STORAGE_KEY]: next })
+    broadcast("WORLD_BOSS_UPDATE", next)
+  } catch (error) {
+    console.error("Error consultando Demonly API:", error)
+  }
 }
 
-// ==========================================
-// CONFIGURAR ALARMA
-// ==========================================
+async function setBossAlarm(minutesBefore: number): Promise<boolean> {
+  const boss = await getBoss()
+  if (!boss) return false
 
-function setBossAlarm(
-  minutesBefore: number
-): boolean {
-  if (!nextBoss) {
-    console.warn(
-      "No hay World Boss para configurar alarma."
-    )
+  const when = boss.timestamp - minutesBefore * 60_000
+  if (when <= Date.now()) return false
 
-    return false
-  }
-
-  const alarmTime =
-    nextBoss.timestamp -
-    minutesBefore * 60 * 1000
-
-  if (alarmTime <= Date.now()) {
-    console.warn(
-      "La hora de alarma ya pasó."
-    )
-
-    return false
-  }
-
-  const alarmName =
-    `${BOSS_ALARM_PREFIX}${nextBoss.id}`
-
-  chrome.alarms.clear(
-    alarmName,
-    () => {
-      chrome.alarms.create(
-        alarmName,
-        {
-          when: alarmTime,
-        }
-      )
-    }
+  // Una sola alarma de boss activa a la vez.
+  const alarms = await chrome.alarms.getAll()
+  await Promise.all(
+    alarms
+      .filter((alarm) => alarm.name.startsWith(BOSS_ALARM_PREFIX))
+      .map((alarm) => chrome.alarms.clear(alarm.name))
   )
 
-  console.log("==========================================")
-  console.log("ALARMA CONFIGURADA")
-  console.log("Boss:", nextBoss.name)
-  console.log(
-    "Minutos antes:",
-    minutesBefore
-  )
-  console.log(
-    "Hora del boss:",
-    new Date(
-      nextBoss.timestamp
-    ).toString()
-  )
-  console.log(
-    "Hora de alarma:",
-    new Date(
-      alarmTime
-    ).toString()
-  )
-  console.log("==========================================")
-
+  await chrome.alarms.create(`${BOSS_ALARM_PREFIX}${boss.id}`, { when })
   return true
 }
 
-// ==========================================
-// NOTIFICAR A LAS PESTAÑAS
-// ==========================================
-
-function notifyTabs() {
-  chrome.tabs.query({}, (tabs) => {
-    for (const tab of tabs) {
-      if (tab.id === undefined) {
-        continue
-      }
-
-      chrome.tabs
-        .sendMessage(tab.id, {
-          type: "WORLD_BOSS_UPDATE",
-          boss: nextBoss,
-        })
-        .catch(() => {})
-    }
+function ensureUpdateAlarm() {
+  chrome.alarms.get(UPDATE_ALARM, (alarm) => {
+    if (!alarm) chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 5 })
   })
 }
+
+chrome.runtime.onInstalled.addListener(() => {
+  ensureUpdateAlarm()
+  updateWorldBoss()
+})
+
+chrome.runtime.onStartup.addListener(() => {
+  ensureUpdateAlarm()
+  updateWorldBoss()
+})
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === UPDATE_ALARM) {
+    await updateWorldBoss()
+  } else if (alarm.name.startsWith(BOSS_ALARM_PREFIX)) {
+    broadcast("WORLD_BOSS_ALARM", await getBoss())
+  }
+})
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === "GET_WORLD_BOSS") {
+    getBoss().then((boss) => sendResponse({ boss }))
+    return true
+  }
+
+  if (message.type === "SET_ALARM") {
+    const minutesBefore = Number(message.minutesBefore)
+
+    if (!Number.isFinite(minutesBefore) || minutesBefore < 0) {
+      sendResponse({ success: false, error: "Tiempo de alarma inválido" })
+      return
+    }
+
+    setBossAlarm(minutesBefore).then((success) =>
+      sendResponse({ success, error: success ? undefined : "No hay World Boss o la hora ya pasó" })
+    )
+    return true
+  }
+})

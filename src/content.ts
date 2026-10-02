@@ -1,21 +1,13 @@
+import type { WorldBoss } from "./types"
 
 const ROOT_ID = "world-boss-alarm-root"
 
 const DEFAULT_ALARM_URL =
   chrome.runtime.getURL("default_alarm.mp3")
 
-declare const __LOGO_DATA_URL__: string
+const LOGO_URL = chrome.runtime.getURL("logo.png")
 
-const LOGO_URL = __LOGO_DATA_URL__
-
-interface Boss {
-  id: string
-  name: string
-  timestamp: number
-  location?: string
-}
-
-let boss: Boss | null = null
+let boss: WorldBoss | null = null
 let interval: number | undefined
 let audioUrl: string | undefined
 
@@ -426,29 +418,6 @@ function createUI() {
   // DEBUG DEL LOGO
   // ==========================================================
 
-  const logo =
-    shadow.getElementById("logo") as
-      | HTMLImageElement
-      | null
-
-  logo?.addEventListener(
-    "error",
-    () => {
-      console.error(
-        "World Boss Alarm: no se pudo cargar el logo"
-      )
-    }
-  )
-
-  logo?.addEventListener(
-    "load",
-    () => {
-      console.log(
-        "World Boss Alarm: logo cargado correctamente"
-      )
-    }
-  )
-
   // ==========================================================
   // CARGAR BOSS
   // ==========================================================
@@ -630,10 +599,6 @@ function loadBoss() {
       }
 
       if (!response?.boss) {
-        console.log(
-          "Todavía no hay World Boss disponible"
-        )
-
         return
       }
 
@@ -734,15 +699,6 @@ function showWidget() {
   const rect =
     show.getBoundingClientRect()
 
-  console.log(
-    "Posición del icono:",
-    {
-      left: rect.left,
-      top: rect.top,
-      right: rect.right,
-      bottom: rect.bottom
-    }
-  )
 
   // ==========================================================
   // MOSTRAR PANEL TEMPORALMENTE
@@ -823,15 +779,6 @@ function showWidget() {
       top
     )
 
-  console.log(
-    "Posición del panel:",
-    {
-      left,
-      top,
-      width: widgetWidth,
-      height: widgetHeight
-    }
-  )
 
   // ==========================================================
   // FORZAR POSICIÓN
@@ -913,8 +860,6 @@ function updateCountdown() {
       clearInterval(interval)
     }
 
-    loadBoss()
-
     return
   }
 
@@ -994,9 +939,6 @@ function configureAlarm() {
         return
       }
 
-      console.log(
-        `Alarma configurada para ${minutesBefore} minutos antes`
-      )
     }
   )
 }
@@ -1027,10 +969,6 @@ function handleAudio(
   audioUrl =
     URL.createObjectURL(file)
 
-  console.log(
-    "Audio seleccionado:",
-    file.name
-  )
 }
 
 // ============================================================
