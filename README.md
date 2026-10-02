@@ -12,7 +12,7 @@ Extensión de Chrome que muestra un contador regresivo hasta el próximo **World
 
 ## Instalación
 
-1. Ve a la sección **Releases** del repositorio y descarga `world-boss-alarm-v1.1.2.zip`.
+1. Ve a la sección **Releases** del repositorio y descarga `world-boss-alarm-v1.1.3.zip`.
 2. Descomprime el zip en una carpeta.
 3. Abre `chrome://extensions` en Chrome (o cualquier navegador basado en Chromium).
 4. Activa el **Modo desarrollador** (arriba a la derecha).

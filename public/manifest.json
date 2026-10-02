@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "World Boss Alarm",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "Alarma y contador para los World Bosses de Diablo 4",
 
   "icons": {
@@ -13,6 +13,7 @@
 
   "permissions": [
     "alarms",
+    "offscreen",
     "storage",
     "tabs"
   ],
@@ -27,7 +28,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["logo.png"],
+      "resources": ["logo.png", "default_alarm.mp3"],
       "matches": ["<all_urls>"]
     }
   ],

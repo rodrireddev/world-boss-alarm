@@ -18,6 +18,7 @@ const BOSS_ALARM_PREFIX = "worldboss-alarm-"
 const STORAGE_KEY = "nextBoss"
 const ALARM_MINUTES_KEY = "alarmMinutes"
 const DEFAULT_ALARM_MINUTES = 30
+const OFFSCREEN_URL = "offscreen.html"
 
 // El service worker de MV3 se suspende: el estado vive en storage.
 async function getBoss(): Promise<WorldBoss | null> {
@@ -41,7 +42,8 @@ function broadcast(type: string, boss: WorldBoss | null, alarmMinutes?: number) 
 }
 
 // La alarma suena en una sola pestaña: primero la activa de la ventana en foco;
-// si no tiene la extensión (p. ej. chrome://), se prueba con las demás.
+// si no puede reproducirla (sin content script o autoplay bloqueado), se prueba
+// con las demás y, como último recurso, suena desde un documento offscreen.
 async function notifyAlarm(boss: WorldBoss | null) {
   const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
   const others = (await chrome.tabs.query({})).filter((tab) => tab.id !== active?.id)
@@ -50,11 +52,33 @@ async function notifyAlarm(boss: WorldBoss | null) {
     if (tab?.id === undefined) continue
 
     try {
-      await chrome.tabs.sendMessage(tab.id, { type: "WORLD_BOSS_ALARM", boss })
-      return
+      const response = await chrome.tabs.sendMessage(tab.id, { type: "WORLD_BOSS_ALARM", boss })
+      if (response?.played) return
     } catch {
       // Sin content script en esta pestaña: probar la siguiente.
     }
+  }
+
+  await playOffscreenAlarm()
+}
+
+async function playOffscreenAlarm() {
+  try {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+    })
+
+    if (contexts.length === 0) {
+      await chrome.offscreen.createDocument({
+        url: OFFSCREEN_URL,
+        reasons: [chrome.offscreen.Reason.AUDIO_PLAYBACK],
+        justification: "Reproducir la alarma del World Boss",
+      })
+    }
+
+    await chrome.runtime.sendMessage({ type: "OFFSCREEN_PLAY_ALARM" })
+  } catch (error) {
+    console.error("No se pudo reproducir la alarma offscreen:", error)
   }
 }
 

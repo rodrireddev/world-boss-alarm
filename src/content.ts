@@ -1042,7 +1042,8 @@ function handleAudio(
 // REPRODUCIR ALARMA
 // ============================================================
 
-function playAlarm() {
+// Devuelve si sonó: el autoplay puede bloquearse si no hubo interacción en la página.
+async function playAlarm(): Promise<boolean> {
   const selectedAudio =
     audioUrl ??
     DEFAULT_ALARM_URL
@@ -1052,13 +1053,16 @@ function playAlarm() {
 
   audio.volume = 1
 
-  audio.play()
-    .catch((error) => {
-      console.error(
-        "No se pudo reproducir la alarma:",
-        error
-      )
-    })
+  try {
+    await audio.play()
+    return true
+  } catch (error) {
+    console.error(
+      "No se pudo reproducir la alarma:",
+      error
+    )
+    return false
+  }
 }
 
 // ============================================================
@@ -1067,7 +1071,7 @@ function playAlarm() {
 
 chrome.runtime.onMessage
   .addListener(
-    (message) => {
+    (message, _sender, sendResponse) => {
       if (
         message.type ===
         "WORLD_BOSS_UPDATE"
@@ -1086,9 +1090,11 @@ chrome.runtime.onMessage
         message.type ===
         "WORLD_BOSS_ALARM"
       ) {
-        playAlarm()
+        playAlarm().then((played) =>
+          sendResponse({ played })
+        )
 
-        return
+        return true
       }
     }
   )
