@@ -598,6 +598,8 @@ function loadBoss() {
         return
       }
 
+      applyAlarmMinutes(response?.alarmMinutes)
+
       if (!response?.boss) {
         return
       }
@@ -608,6 +610,16 @@ function loadBoss() {
       startCountdown()
     }
   )
+}
+
+// Muestra en el selector la alarma guardada.
+function applyAlarmMinutes(minutes: unknown) {
+  const select =
+    shadow?.getElementById("alarm") as HTMLSelectElement | null
+
+  if (select && minutes !== undefined) {
+    select.value = String(minutes)
+  }
 }
 
 // ============================================================
@@ -1008,6 +1020,7 @@ chrome.runtime.onMessage
         boss =
           message.boss
 
+        applyAlarmMinutes(message.alarmMinutes)
         updateBossUI()
         startCountdown()
 
