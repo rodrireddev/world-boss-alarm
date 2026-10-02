@@ -16,6 +16,8 @@ const WORLD_BOSS_API = "https://demonly.net/api/worldstone/v1/events"
 const UPDATE_ALARM = "worldboss-page-update"
 const BOSS_ALARM_PREFIX = "worldboss-alarm-"
 const STORAGE_KEY = "nextBoss"
+const ALARM_MINUTES_KEY = "alarmMinutes"
+const DEFAULT_ALARM_MINUTES = 30
 
 // El service worker de MV3 se suspende: el estado vive en storage.
 async function getBoss(): Promise<WorldBoss | null> {
@@ -23,11 +25,16 @@ async function getBoss(): Promise<WorldBoss | null> {
   return (stored[STORAGE_KEY] as WorldBoss | undefined) ?? null
 }
 
-function broadcast(type: string, boss: WorldBoss | null) {
+async function getAlarmMinutes(): Promise<number> {
+  const stored = await chrome.storage.local.get(ALARM_MINUTES_KEY)
+  return (stored[ALARM_MINUTES_KEY] as number | undefined) ?? DEFAULT_ALARM_MINUTES
+}
+
+function broadcast(type: string, boss: WorldBoss | null, alarmMinutes?: number) {
   chrome.tabs.query({}, (tabs) => {
     for (const tab of tabs) {
       if (tab.id !== undefined) {
-        chrome.tabs.sendMessage(tab.id, { type, boss }).catch(() => {})
+        chrome.tabs.sendMessage(tab.id, { type, boss, alarmMinutes }).catch(() => {})
       }
     }
   })
@@ -67,8 +74,18 @@ async function updateWorldBoss() {
         .filter((event) => event.timestamp > now)
         .sort((a, b) => a.timestamp - b.timestamp)[0] ?? null
 
+    const previous = await getBoss()
     await chrome.storage.local.set({ [STORAGE_KEY]: next })
-    broadcast("WORLD_BOSS_UPDATE", next)
+
+    // Si cambió el boss, reprograma la alarma con la preferencia guardada.
+    if (next && next.id !== previous?.id) {
+      const saved = await chrome.storage.local.get(ALARM_MINUTES_KEY)
+      if (saved[ALARM_MINUTES_KEY] !== undefined) {
+        await setBossAlarm(saved[ALARM_MINUTES_KEY] as number)
+      }
+    }
+
+    broadcast("WORLD_BOSS_UPDATE", next, await getAlarmMinutes())
   } catch (error) {
     console.error("Error consultando Demonly API:", error)
   }
@@ -119,7 +136,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "GET_WORLD_BOSS") {
-    getBoss().then((boss) => sendResponse({ boss }))
+    Promise.all([getBoss(), getAlarmMinutes()]).then(([boss, alarmMinutes]) =>
+      sendResponse({ boss, alarmMinutes })
+    )
     return true
   }
 
@@ -131,9 +150,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return
     }
 
-    setBossAlarm(minutesBefore).then((success) =>
-      sendResponse({ success, error: success ? undefined : "No hay World Boss o la hora ya pasó" })
-    )
+    // La preferencia se guarda siempre, aunque la hora de alarma ya haya pasado.
+    chrome.storage.local
+      .set({ [ALARM_MINUTES_KEY]: minutesBefore })
+      .then(() => setBossAlarm(minutesBefore))
+      .then((success) =>
+        sendResponse({ success, error: success ? undefined : "No hay World Boss o la hora ya pasó" })
+      )
     return true
   }
 })
