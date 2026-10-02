@@ -58,6 +58,13 @@ cd dist && zip -r ../world-boss-alarm.zip .
 
 En Windows PowerShell: `Compress-Archive -Path dist\* -DestinationPath world-boss-alarm.zip -Force`.
 
+### Publicar un release
+
+1. Sube la versión en `public/manifest.json` y `package.json` y mergea a `main`.
+2. En GitHub, ve a **Actions → Release → Run workflow** sobre `main`.
+
+El workflow compila la extensión, crea el tag `vX.Y.Z` y publica el release con `world-boss-alarm-vX.Y.Z.zip` adjunto. Si el release de esa versión ya existe, falla sin tocar nada.
+
 ## Créditos
 
 Datos de horarios: [Demonly](https://demonly.net). Proyecto de fans, no afiliado a Blizzard Entertainment. Diablo es marca registrada de Blizzard Entertainment.
