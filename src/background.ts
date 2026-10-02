@@ -40,6 +40,24 @@ function broadcast(type: string, boss: WorldBoss | null, alarmMinutes?: number) 
   })
 }
 
+// La alarma suena en una sola pestaña: primero la activa de la ventana en foco;
+// si no tiene la extensión (p. ej. chrome://), se prueba con las demás.
+async function notifyAlarm(boss: WorldBoss | null) {
+  const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  const others = (await chrome.tabs.query({})).filter((tab) => tab.id !== active?.id)
+
+  for (const tab of [active, ...others]) {
+    if (tab?.id === undefined) continue
+
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: "WORLD_BOSS_ALARM", boss })
+      return
+    } catch {
+      // Sin content script en esta pestaña: probar la siguiente.
+    }
+  }
+}
+
 function parseWorldBosses(bosses: DemonlyWorldBoss[]): WorldBoss[] {
   const results: WorldBoss[] = []
 
@@ -130,7 +148,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === UPDATE_ALARM) {
     await updateWorldBoss()
   } else if (alarm.name.startsWith(BOSS_ALARM_PREFIX)) {
-    broadcast("WORLD_BOSS_ALARM", await getBoss())
+    await notifyAlarm(await getBoss())
   }
 })
 
