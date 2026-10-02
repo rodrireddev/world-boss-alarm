@@ -1,6 +1,7 @@
 import type { WorldBoss } from "./types"
 
 const ROOT_ID = "world-boss-alarm-root"
+const ICON_POSITION_KEY = "iconPosition"
 
 const DEFAULT_ALARM_URL =
   chrome.runtime.getURL("default_alarm.mp3")
@@ -422,7 +423,59 @@ function createUI() {
   // CARGAR BOSS
   // ==========================================================
 
+  restoreIconPosition()
   loadBoss()
+}
+
+// ============================================================
+// POSICIÓN DEL ICONO (se guarda y se restaura entre recargas)
+// ============================================================
+
+function saveIconPosition() {
+  const button = getShowButton()
+
+  if (!button) {
+    return
+  }
+
+  const rect = button.getBoundingClientRect()
+
+  chrome.storage.local
+    .set({ [ICON_POSITION_KEY]: { left: rect.left, top: rect.top } })
+    .catch(() => {})
+}
+
+async function restoreIconPosition() {
+  const button = getShowButton()
+
+  if (!button) {
+    return
+  }
+
+  try {
+    const stored = await chrome.storage.local.get(ICON_POSITION_KEY)
+    const position = stored[ICON_POSITION_KEY] as
+      | { left: number; top: number }
+      | undefined
+
+    if (
+      !position ||
+      !Number.isFinite(position.left) ||
+      !Number.isFinite(position.top)
+    ) {
+      return
+    }
+
+    // Si la ventana es más pequeña que cuando se guardó, mantenerlo visible.
+    const maxLeft = Math.max(0, window.innerWidth - button.offsetWidth)
+    const maxTop = Math.max(0, window.innerHeight - button.offsetHeight)
+
+    button.style.left = `${Math.min(Math.max(0, position.left), maxLeft)}px`
+    button.style.top = `${Math.min(Math.max(0, position.top), maxTop)}px`
+    button.style.right = "auto"
+  } catch {
+    // Sin acceso a storage: se queda en la posición por defecto.
+  }
 }
 
 // ============================================================
@@ -568,6 +621,8 @@ function handlePointerUp(
   if (isDragging) {
     isDragging = false
     dragStarted = false
+
+    saveIconPosition()
 
     return
   }
